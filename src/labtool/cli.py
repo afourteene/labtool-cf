@@ -1,6 +1,9 @@
 import click
 import sys
-from . import ui
+from pathlib import Path
+from labtool.adapters import system
+from labtool.services import install_cloudflared
+from importlib.metadata import version
 from labtool.adapters.cloudflared import CloudflaredGateway, YamlConfigStore
 from labtool.adapters.lab_file import load_lab
 from labtool.adapters.runner import ProcessRunner
@@ -13,8 +16,9 @@ from labtool.services import (
     tunnel_status,
     up_tunnel,
 )
-from labtool.adapters import system
-from labtool.services import install_cloudflared
+from . import ui
+from .adapters.lab_file import load_lab, resolve_lab_path, user_config_path, write_template
+
 
 
 
@@ -23,7 +27,7 @@ CONTEXT = {"help_option_names": ["-h", "--help"]}
 
 
 @click.group(context_settings=CONTEXT)
-@click.version_option("0.1.0", "-v", "--version", prog_name="labtool")
+@click.version_option(version("labtool-cf"), "-v", "--version", prog_name="labtool-cf")
 def cli():
     """labtool: manage a Cloudflare tunnel for your lab nodes.
 
@@ -39,10 +43,10 @@ def cli():
     
     
 @cli.command(context_settings=CONTEXT)
-@click.option("-f", "--file", default="lab.yaml", show_default=True)
+@click.option("-f", "--file", default=None, show_default=True)
 def init(file):
     """Create the tunnel, DNS records and config.yml."""
-    lab = load_lab(file)
+    lab = load_lab(resolve_lab_path(file))
     init_tunnel(lab, CloudflaredGateway(), YamlConfigStore(), log=ui.smart_log)
 
 
@@ -63,11 +67,11 @@ def status():
 
 
 @cli.command(context_settings=CONTEXT)
-@click.option("-f", "--file", default="lab.yaml", show_default=True)
+@click.option("-f", "--file", default=None, show_default=True)
 @click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt.")
 def delete(file, yes):
     """Delete the tunnel from Cloudflare (irreversible)."""
-    lab = load_lab(file)
+    lab = load_lab(resolve_lab_path(file))
     if not yes:
         click.confirm(
             click.style(f"Delete tunnel '{lab.tunnel_name}'?", fg="red", bold=True),
@@ -76,11 +80,11 @@ def delete(file, yes):
     delete_tunnel(lab, CloudflaredGateway(), ProcessRunner(), log=ui.smart_log)
     
 @cli.command(context_settings=CONTEXT)
-@click.option("-f", "--file", default="lab.yaml", show_default=True,
+@click.option("-f", "--file", default=None, show_default=True,
               help="Path to the lab definition file.")
 def up(file):
     """Run the tunnel in the background."""
-    lab = load_lab(file)
+    lab = load_lab(resolve_lab_path(file))
     up_tunnel(lab, CloudflaredGateway(), ProcessRunner(), log=ui.smart_log)
 
 
@@ -94,6 +98,29 @@ def down():
 def login():
     """Log in to Cloudflare (creates cert.pem)."""
     ensure_login(CloudflaredGateway(), log=ui.smart_log)
+    
+    
+    
+@cli.group(context_settings=CONTEXT)
+def config():
+    """Manage the lab.yaml configuration file."""
+
+
+@config.command("init", context_settings=CONTEXT)
+@click.option("--local", is_flag=True, help="Create ./lab.yaml instead of the user config dir.")
+@click.option("--force", is_flag=True, help="Overwrite an existing file.")
+def config_init(local, force):
+    """Create a template lab.yaml and show where it is."""
+    path = Path("lab.yaml") if local else user_config_path()
+    write_template(path, force)
+    ui.success(f"Created {path}")
+    ui.info("Edit it (domain, tunnel_name, nodes), then run: labtool init")
+
+
+@config.command("path", context_settings=CONTEXT)
+def config_path():
+    """Print the config file that would be used."""
+    click.echo(resolve_lab_path())
 
     
     

@@ -5,7 +5,8 @@ __pycache__/
 
 # C extensions
 *.so
-
+.lab.yaml
+lab.yaml
 # Distribution / packaging
 .Python
 build/
